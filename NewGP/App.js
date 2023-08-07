@@ -10,7 +10,7 @@ export default function App() {
   return (
     <View>
       <View style={styles.forHelpButton}>
-        <Button title='HELP'/>
+        <Button title='HELP' onPress={HelpScreenHandler}/>
       </View>
     </View>
   );
