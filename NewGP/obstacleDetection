@@ -1,0 +1,156 @@
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet } from 'react-native';
+import { Camera } from 'expo-camera';
+import * as Speech from 'expo-speech';
+import { Geolocation } from '@react-native-community/geolocation';
+import * as cocoSsd from '@tensorflow-models/coco-ssd';
+
+export default function App() {
+  const [cameraPermission, setCameraPermission] = useState(null);
+  const [isButtonsDisabled, setIsButtonsDisabled] = useState(false);
+  const [cameraRef, setCameraRef] = useState(null);
+  const [detectedObject, setDetectedObject] = useState(null);
+  const [userDistance, setUserDistance] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      const { status } = await Camera.requestCameraPermissionsAsync();
+      setCameraPermission(status === 'granted');
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (cameraRef && cameraPermission) {
+      setupCamera();
+    }
+  }, [cameraRef, cameraPermission]);
+
+  const setupCamera = async () => {
+    const model = await cocoSsd.load();
+    const video = cameraRef;
+
+    detectObjects(model, video);
+  };
+
+  const detectObjects = async (model, video) => {
+    while (true) {
+      if (video && model) {
+        const predictions = await model.detect(video);
+        console.log(predictions);
+
+        const detectedObjects = predictions.map((prediction) => prediction.class);
+        setDetectedObject(detectedObjects.join(', '));
+
+        await tf.nextFrame();
+      }
+    }
+  };
+
+  const measureObstacleDistance = async () => {
+    if (!cameraPermission || isButtonsDisabled || !cameraRef) {
+      console.log('Camera permission not granted or buttons are disabled.');
+      return;
+    }
+
+    const options = { maximumAge: 1000 };
+    Geolocation.watchPosition(
+      (position) => {
+        const userLatitude = position.coords.latitude;
+        const userLongitude = position.coords.longitude;
+
+        // 장애물의 좌표 (예시)
+        const obstacleLatitude = 37.7749; // 장애물의 위도
+        const obstacleLongitude = -122.4194; // 장애물의 경도
+
+        const R = 6371; // 지구의 반경 (단위: km)
+        const dLat = deg2rad(obstacleLatitude - userLatitude);
+        const dLon = deg2rad(obstacleLongitude - userLongitude);
+        const a =
+          Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos(deg2rad(userLatitude)) *
+            Math.cos(deg2rad(obstacleLatitude)) *
+            Math.sin(dLon / 2) *
+            Math.sin(dLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        const distance = R * c * 1000; // 거리 (단위: 미터)
+
+        const obstacleDistanceText = `장애물까지의 거리: ${distance.toFixed(2)}m`;
+        try {
+          Speech.stop();
+          Speech.speak(obstacleDistanceText);
+        } catch (error) {
+          console.error(error);
+        }
+
+        const userToObstacleDistance = distance - 30;
+        const userToObstacleText = `사용자와 장애물 사이의 거리: ${userToObstacleDistance.toFixed(
+          2
+        )}m`;
+        setUserDistance(userToObstacleText);
+
+        if (userToObstacleDistance <= 50) {
+          setDetectedObject('장애물을 감지했습니다.');
+          try {
+            Speech.speak('장애물을 감지했습니다.');
+          } catch (error) {
+            console.error(error);
+          }
+        }
+      },
+      (error) => {
+        console.error(error);
+      },
+      options
+    );
+  };
+
+  const deg2rad = (deg) => {
+    return deg * (Math.PI / 180);
+  };
+
+  return (
+    <View style={styles.container}>
+      <Camera
+        style={styles.camera}
+        type={Camera.Constants.Type.back}
+        ref={(ref) => setCameraRef(ref)}
+        onCameraReady={measureObstacleDistance}
+      />
+      {detectedObject && (
+        <Text style={styles.detectedObject}>감지된 객체: {detectedObject}</Text>
+      )}
+      {userDistance && (
+        <Text style={styles.userDistance}>{userDistance}</Text>
+      )}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  camera: {
+    flex: 1,
+  },
+  detectedObject: {
+    position: 'absolute',
+    top: 20,
+    left: 20,
+    color: 'white',
+    fontSize: 18,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    padding: 10,
+    borderRadius: 5,
+  },
+  userDistance: {
+    position: 'absolute',
+    bottom: 20,
+    left: 20,
+    color: 'white',
+    fontSize: 18,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    padding: 10,
+    borderRadius: 5,
+  },
+});
